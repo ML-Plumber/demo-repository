@@ -18,7 +18,7 @@
 
 따라서 현재 상태에서 `01-bootstrap-kafka-node.ps1` 실행 성공은 **Kafka 런타임 준비 완료**를 뜻하며, **Kafka 클러스터 구성 완료**를 뜻하지 않는다.
 
-현재 파일의 이름은 `01-bootstrap-kafka-node.ps1`이지만 파일 내부 예시와 대응 문서 일부에는 이전 이름인 `00-bootstrap-kafka-node.ps1`이 남아 있다. 이후 기능 구현 전에 실제 파일명인 `01`로 일치시켜야 한다.
+파일 내부 예시와 대응 문서는 실제 파일명인 `01-bootstrap-kafka-node.ps1`로 일치한다.
 
 ## 3. 파일과 문서의 1:1 규칙
 
@@ -175,6 +175,7 @@ Register-ResumeTask(ScriptPath, Arguments)
 책임:
 
 - WSL 배포판을 확인하고 없으면 설치한다.
+- 새 배포판은 `--no-launch`로 설치해 Ubuntu 최초 사용자 설정 셸이 PowerShell 흐름을 붙잡지 않게 한다.
 - WSL이 이미 설치되고 root 명령 실행이 가능하면 WSL 설치를 건너뛴다.
 - Linux 사용자를 준비하고 Java 17과 Kafka 4.3.1을 설치한다.
 - `~/kafka`, `~/.kafka-env`, `~/.bashrc`를 준비한다.
@@ -220,7 +221,12 @@ Test-WslDistribution(Name) -> bool
   wsl.exe --list --quiet 결과에 Name이 있는지 확인
   외부 호출: wsl.exe
 
-Test-WslReady(Name, RetryCount=12, RetryDelaySeconds=5) -> bool
+Assert-WslInstallSupportsNoLaunch()
+  wsl.exe --help에 --no-launch 옵션이 있는지 확인
+  없으면 대화형 최초 실행을 피할 수 없으므로 WSL 업데이트 안내와 함께 중단
+  외부 호출: wsl.exe
+
+Test-WslReady(Name, RetryCount=36, RetryDelaySeconds=5) -> bool
   root로 /bin/sh -c "exit 0" 실행
   실패하면 지정 횟수만큼 대기 후 재시도
   외부 호출: wsl.exe, Start-Sleep
@@ -241,9 +247,10 @@ Request-WslRestart(DistroName, TargetLinuxUser)
 
 Ensure-Wsl(DistroName, TargetLinuxUser) -> bool
   배포판 존재 + root 명령 성공이면 true
-  배포판이 없으면 wsl.exe --install 실행
+  배포판이 없으면 --no-launch 지원을 확인하고
+  wsl.exe --install --distribution <이름> --no-launch 실행
   즉시 준비되지 않으면 재개 작업을 등록하고 false
-  외부 호출: Test-WslDistribution, Test-WslReady,
+  외부 호출: Test-WslDistribution, Assert-WslInstallSupportsNoLaunch, Test-WslReady,
              Register-Resume, Request-WslRestart, wsl.exe
 
 Invoke-WslKafkaInstall(DistroName, TargetLinuxUser)

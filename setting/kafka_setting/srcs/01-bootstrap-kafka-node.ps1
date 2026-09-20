@@ -4,7 +4,7 @@
 빈 Windows에서 WSL Ubuntu와 Kafka 4.3.1 실행 환경을 준비합니다.
 
 .EXAMPLE
-.\00-bootstrap-kafka-node.ps1 -RestartIfRequired
+.\01-bootstrap-kafka-node.ps1 -RestartIfRequired
 #>
 
 [CmdletBinding()]
@@ -75,6 +75,25 @@ function Test-WslDistribution {
     }
 
     return $false
+}
+
+
+function Assert-WslInstallSupportsNoLaunch {
+    # 오래된 WSL은 --no-launch를 지원하지 않아 설치 뒤 대화형 Ubuntu 셸이 열릴 수 있습니다.
+    $helpOutput = @(
+        & wsl.exe --help 2>$null
+    )
+    $exitCode = $LASTEXITCODE
+
+    if (
+        $exitCode -ne 0 -or
+        (($helpOutput -join "`n") -notmatch "--no-launch")
+    ) {
+        throw (
+            "현재 WSL은 --no-launch 옵션을 지원하지 않습니다. " +
+            "Ubuntu 최초 실행 셸이 PowerShell을 붙잡지 않도록 WSL을 업데이트한 뒤 다시 실행하세요."
+        )
+    }
 }
 
 
@@ -216,7 +235,11 @@ function Ensure-Wsl {
 
     Write-Host ""
     Write-Host "WSL과 $DistroName 설치를 시작합니다..." -ForegroundColor Cyan
-    Write-Host "Ubuntu 초기 대화형 셸은 실행하지 않습니다." -ForegroundColor Cyan
+    Write-Host "Ubuntu 최초 사용자명/비밀번호 입력 셸은 실행하지 않습니다." -ForegroundColor Cyan
+    Write-Host "Linux 사용자 $TargetLinuxUser 는 다음 단계에서 만들거나 재사용합니다." -ForegroundColor Cyan
+
+    # 대화형 최초 실행으로 PowerShell이 멈추지 않는 WSL 버전만 사용합니다.
+    Assert-WslInstallSupportsNoLaunch
 
     # 재부팅이 필요할 가능성이 있으므로 미리 재개 작업 등록
     Register-Resume `
@@ -411,7 +434,7 @@ version_dir="$HOME/kafka_${KAFKA_SCALA_VERSION}-${KAFKA_VERSION}"
 kafka_home="$HOME/kafka"
 
 env_file="$HOME/.kafka-env"
-env_marker="# Managed by 00-bootstrap-kafka-node.ps1"
+env_marker="# Managed by 01-bootstrap-kafka-node.ps1"
 
 archive_path="$package_dir/$KAFKA_ARCHIVE"
 checksum_path="$archive_path.sha512"
