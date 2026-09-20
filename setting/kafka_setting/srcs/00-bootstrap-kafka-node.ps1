@@ -15,8 +15,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$runOncePath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce"
-$resumeValueName = "KafkaBootstrapResume"
+$resumeTaskName = "KafkaBootstrapResume"
 
 function Test-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -45,37 +44,87 @@ function Test-WslDistribution {
     return $names | Where-Object { $_.Trim() -eq $Name } | Select-Object -First 1
 }
 
+function Test-WslReady {
+    param(
+        [string]$Name,
+        [int]$RetryCount = 12,
+        [int]$RetryDelaySeconds = 5
+    )
+
+    # 배포판 목록에 보여도 재시작 전에는 실제 Linux 명령 실행이 실패할 수 있습니다.
+    for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+        & wsl.exe --distribution $Name --user root -- /bin/sh -c "exit 0" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            return $true
+        }
+
+        if ($attempt -lt $RetryCount) {
+            Start-Sleep -Seconds $RetryDelaySeconds
+        }
+    }
+    return $false
+}
+
 function Register-Resume {
     param([string]$ScriptPath, [string]$DistroName, [string]$TargetLinuxUser)
 
     $quotedScript = '"' + $ScriptPath.Replace('"', '""') + '"'
     $quotedDistro = '"' + $DistroName.Replace('"', '""') + '"'
     $quotedUser = '"' + $TargetLinuxUser.Replace('"', '""') + '"'
-    $command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File $quotedScript -Distribution $quotedDistro -LinuxUser $quotedUser -ResumeAfterRestart"
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedScript -Distribution $quotedDistro -LinuxUser $quotedUser -ResumeAfterRestart"
 
-    New-Item -Path $runOncePath -Force | Out-Null
-    New-ItemProperty -Path $runOncePath -Name $resumeValueName -Value $command -PropertyType String -Force | Out-Null
+    # RunOnce는 재개 시 다시 UAC 승인을 요구할 수 있으므로, 로그인 때 관리자 권한으로
+    # 한 번만 실행되는 작업을 등록합니다.
+    $accountName = "$env:USERDOMAIN\$env:USERNAME"
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments -WorkingDirectory (Split-Path -Parent $ScriptPath)
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $accountName
+    $principal = New-ScheduledTaskPrincipal -UserId $accountName -LogonType Interactive -RunLevel Highest
+    Register-ScheduledTask -TaskName $resumeTaskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+}
+
+function Remove-Resume {
+    Unregister-ScheduledTask -TaskName $resumeTaskName -Confirm:$false -ErrorAction SilentlyContinue
+}
+
+function Request-WslRestart {
+    param([string]$DistroName, [string]$TargetLinuxUser)
+
+    Register-Resume -ScriptPath $PSCommandPath -DistroName $DistroName -TargetLinuxUser $TargetLinuxUser
+    if ($RestartIfRequired) {
+        Write-Host "WSL 설치 완료를 위해 Windows를 다시 시작합니다. 로그인하면 Kafka 설치를 자동 재개합니다." -ForegroundColor Yellow
+        Restart-Computer -Force
+    }
+
+    Write-Warning "WSL이 아직 실행 준비 상태가 아닙니다. Windows를 재시작하고 같은 계정으로 로그인하면 Kafka 설치가 자동 재개됩니다. 즉시 재시작하려면 -RestartIfRequired 옵션으로 실행하세요."
 }
 
 function Ensure-Wsl {
     param([string]$DistroName, [string]$TargetLinuxUser)
 
-    if (Test-WslDistribution $DistroName) { return $true }
+    if (Test-WslDistribution $DistroName) {
+        if (Test-WslReady $DistroName) { return $true }
+
+        Request-WslRestart -DistroName $DistroName -TargetLinuxUser $TargetLinuxUser
+        return $false
+    }
 
     Write-Host "WSL과 $DistroName 설치를 시작합니다..." -ForegroundColor Cyan
+    # wsl --install이 재시작을 요구하는 경우를 대비해 설치 전에 재개 작업을 만듭니다.
+    Register-Resume -ScriptPath $PSCommandPath -DistroName $DistroName -TargetLinuxUser $TargetLinuxUser
     & wsl.exe --install --distribution $DistroName
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0 -and $exitCode -ne 3010) {
+        Remove-Resume
         throw "WSL 설치가 종료 코드 $exitCode 로 실패했습니다."
     }
 
-    if (Test-WslDistribution $DistroName) { return $true }
-
-    Register-Resume -ScriptPath $PSCommandPath -DistroName $DistroName -TargetLinuxUser $TargetLinuxUser
-    Write-Warning "WSL 설치를 완료하려면 재시작이 필요합니다. 로그인 뒤 같은 스크립트가 자동 재개됩니다."
-    if ($RestartIfRequired) {
-        Restart-Computer -Force
+    # 목록 표시가 아닌 실제 root 명령 성공을 기준으로 다음 단계 진행 여부를 판단합니다.
+    if ((Test-WslDistribution $DistroName) -and (Test-WslReady $DistroName)) {
+        Remove-Resume
+        return $true
     }
+
+    Request-WslRestart -DistroName $DistroName -TargetLinuxUser $TargetLinuxUser
     return $false
 }
 
@@ -207,8 +256,8 @@ if (-not (Test-Administrator)) {
     $arguments = "-NoProfile -ExecutionPolicy Bypass -File $quotedScript -Distribution $quotedDistro -LinuxUser $quotedUser"
     if ($ResumeAfterRestart) { $arguments += " -ResumeAfterRestart" }
     if ($RestartIfRequired) { $arguments += " -RestartIfRequired" }
-    Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $arguments
-    exit 0
+    $elevatedProcess = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $arguments -Wait -PassThru
+    exit $elevatedProcess.ExitCode
 }
 
 if (-not (Ensure-Wsl -DistroName $Distribution -TargetLinuxUser $LinuxUser)) {
@@ -216,7 +265,7 @@ if (-not (Ensure-Wsl -DistroName $Distribution -TargetLinuxUser $LinuxUser)) {
 }
 
 Invoke-WslKafkaInstall -DistroName $Distribution -TargetLinuxUser $LinuxUser
-Remove-ItemProperty -Path $runOncePath -Name $resumeValueName -ErrorAction SilentlyContinue
+Remove-Resume
 
 Write-Host "완료: WSL $Distribution 의 Linux 사용자 $LinuxUser 에 Kafka 4.3.1을 설치했습니다." -ForegroundColor Green
 Write-Host "다음 단계에서 WSL의 ~/kafka 경로를 사용하세요."

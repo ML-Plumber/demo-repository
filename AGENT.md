@@ -13,8 +13,14 @@ untracked 파일은 이름만 확인하고 내부에 포함되지 않은 내용�
 2. 사용자가 직접 수정한 코드의 문서 선반영
 작업 시작 시 이미 코드가 변경되면 먼저 Git diff를 기준으로 사용자가 수정한 범위와 작업하는 문서를 일치시키게 됩니다. 현재의 행위, 권한, 관련 관계와 관련하여 해당 코드는 다음 개발 작업을 수행합니다.
 
-클라이언트 관리 문서:client/docs/client-routing/README.md
-파일별 문서:client/docs/client-routing/files/<client 상대경로>.md
+카프카, 스파크 통합 문서:./README.md
+
+카프카 관리 문서:./setting/kafka/docs/setting-routing/README.md
+카프카 파일별 문서:./setting/kafka/docs/setting-routing/files/<client 상대경로>.md
+
+스파크 관리 문서:./setting/spark/docs/setting-routing/README.md
+스파크 파일별 문서:./setting/spark/docs/setting-routing/files/<client 상대경로>.md
+
 소스나 설정 파일을 추가·이동·삭제하는 경우 파일별 문서도 함께 추가·이동·삭제합니다.
 현재 코드 변경과 관계 없는 문서 내용은 수정되지 않습니다.
 3. 개발 중 문서 범위 유지
