@@ -35,13 +35,14 @@ PowerShell 시작
 ## WSL 내부 처리
 
 \`\`\`text
-1. Java 17 실행 파일을 찾고 JAVA_HOME을 계산한다.
-2. kafka_2.13-4.3.1.tgz와 공식 SHA-512 파일을 내려받는다.
-3. 해시값이 다르면 즉시 종료한다.
-4. ~/kafka_2.13-4.3.1에 압축을 해제하고 ~/kafka 링크를 만든다.
-5. ~/.kafka-env에 JAVA_HOME, KAFKA_HOME, PATH를 기록한다.
-6. ~/.bashrc에 source ~/.kafka-env를 없을 때만 추가한다.
-7. Java와 kafka-storage.sh를 실행해 경로를 확인한다.
+1. PowerShell here-string의 CRLF 줄바꿈을 LF로 바꾼 뒤 Bash에 전달한다.
+2. Java 17 실행 파일을 찾고 JAVA_HOME을 계산한다.
+3. kafka_2.13-4.3.1.tgz와 공식 SHA-512 파일을 내려받는다.
+4. Apache SHA-512 파일의 8자리 해시 블록을 하나의 128자리 값으로 합쳐 검증하고, 형식이나 값이 다르면 즉시 종료한다.
+5. ~/kafka_2.13-4.3.1에 압축을 해제하고 ~/kafka 링크를 만든다.
+6. ~/.kafka-env에 JAVA_HOME, KAFKA_HOME, PATH를 기록한다.
+7. ~/.bashrc에 source ~/.kafka-env를 없을 때만 추가한다.
+8. Java와 kafka-storage.sh를 실행해 경로를 확인한다.
 \`\`\`
 
 새 Ubuntu 설치에서는 `--no-launch`를 사용하므로 사용자명·비밀번호를 묻는 대화형 셸을 열지 않는다. root 설치 단계가 `LinuxUser`를 만들거나 기존 계정을 재사용한다. `wsl.exe --help`가 UTF-16 형태로 출력되면 검사 전에 문자 사이의 NUL 문자를 제거하며, 정상 도움말에도 `-1`을 반환할 수 있어 종료 코드가 아닌 도움말 내용으로 지원 여부를 판단한다. 현재 WSL이 `--no-launch`를 지원하지 않으면 대화형 셸을 열어 PowerShell 흐름을 막는 대신, WSL 업데이트가 필요하다는 오류를 표시하고 중단한다.

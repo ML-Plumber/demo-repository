@@ -496,12 +496,21 @@ echo
 echo "SHA-512 검증 중..."
 
 
-# 공식 SHA512 파일에서 정확히 128자리 SHA512 해시만 추출
-expected_sha512="$(
-    grep -Eo '[A-Fa-f0-9]{128}' "$checksum_path" |
-    head -n 1 |
-    tr '[:lower:]' '[:upper:]'
-)"
+# Apache SHA512 파일은 8자리 해시 블록을 여러 줄로 나눌 수 있으므로 하나로 합칩니다.
+expected_sha512=""
+while IFS= read -r checksum_line; do
+    if [[ "$checksum_line" == *:* ]]; then
+        checksum_line="${checksum_line#*:}"
+    fi
+
+    checksum_line="${checksum_line//[[:space:]]/}"
+
+    if [[ "$checksum_line" =~ ^[[:xdigit:]]+$ ]]; then
+        expected_sha512+="$checksum_line"
+    fi
+done < "$checksum_path"
+
+expected_sha512="${expected_sha512^^}"
 
 
 actual_sha512="$(
@@ -624,6 +633,8 @@ echo "경로: $target_home/kafka"
 echo "========================================"
 '@
 
+    # PowerShell here-string의 CRLF를 WSL Bash가 해석할 수 있는 LF로 바꿉니다.
+    $bashPayload = $bashPayload -replace "`r`n", "`n"
 
     $bashPayload |
         & wsl.exe `

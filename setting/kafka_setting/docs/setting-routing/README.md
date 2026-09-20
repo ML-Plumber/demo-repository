@@ -52,8 +52,6 @@ docs/setting-routing/files/01-bootstrap-kafka-node.ps1.md
 | 03 | `srcs/03-validate-kafka-inventory.sh` | `files/03-validate-kafka-inventory.sh.md` | 계획 | 현재 서버 식별, 역할·ID·주소·포트·데이터 경로 검증, 로컬 프로세스 행 선택 |
 | 04 | `srcs/04-render-kafka-config.sh` | `files/04-render-kafka-config.sh.md` | 계획 | 검증된 인벤토리로 controller·broker별 Kafka 설정 파일 생성 |
 | 05 | `srcs/05-format-kafka-storage.sh` | `files/05-format-kafka-storage.sh.md` | 계획 | 공통 cluster ID 검증과 신규 저장소의 안전한 1회 포맷 |
-| 06 | `srcs/06-manage-kafka-processes.sh` | `files/06-manage-kafka-processes.sh.md` | 계획 | 프로세스별 prepare·start·status 수행과 중복 실행 방지 |
-| 07 | `srcs/07-check-kafka-cluster.sh` | `files/07-check-kafka-cluster.sh.md` | 계획 | 로컬 리스닝, peer TCP, quorum, broker 등록과 재실행 결과 검사 |
 
 계획 파일은 해당 실행 파일을 실제로 만들 때 같은 작업에서 대응 문서를 생성한다. 통합 README에 이름이 있다는 이유만으로 구현된 것으로 취급하지 않는다.
 
@@ -255,9 +253,10 @@ Ensure-Wsl(DistroName, TargetLinuxUser) -> bool
              Register-Resume, Request-WslRestart, wsl.exe
 
 Invoke-WslKafkaInstall(DistroName, TargetLinuxUser)
+  PowerShell here-string의 CRLF를 LF로 정규화한 Bash 입력을 root WSL에 전달
   root Bash로 Linux 사용자 생성과 apt 패키지 설치
   Java 17 실제 경로 계산
-  일반 사용자 Bash로 Kafka 다운로드, SHA-512 검증, 압축 해제
+  일반 사용자 Bash로 Kafka 다운로드, Apache SHA-512의 8자리 블록을 128자리 값으로 합쳐 검증, 압축 해제
   ~/kafka 링크와 환경 파일 생성 후 kafka-storage.sh 실행 확인
   외부 호출: wsl.exe, bash, apt-get, curl, sha512sum, tar,
              useradd, runuser, update-alternatives
