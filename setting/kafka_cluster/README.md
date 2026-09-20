@@ -6,9 +6,109 @@
 
 이 문서는 구현 계획이다. 실제 서버 주소·접속 정보가 제공되지 않아 서버의 포트 개방, WSL 모드, 클러스터 기동은 아직 검증하지 않았다. 아래 명령도 문서 작성 과정에서 실행하지 않았다.
 
-실행 순서는 **역할·포트 계획 → 네트워크 모드 적용·주소 확인 → 포워딩·방화벽 준비 → 인벤토리 확정 → Kafka 설정 생성 → 초기화·기동 → 원격 연결·등록 검사**다. Kafka의 실제 포트 바인딩은 설정을 읽고 프로세스가 시작할 때 일어난다.
+실행 순서는 **WSL 설치 → Java 17·Kafka 4.3.1 설치 → Kafka·Java 경로 고정 → 역할·포트 계획 → 네트워크 모드 적용·주소 확인 → 포워딩·방화벽 준비 → 인벤토리 확정 → Kafka 설정 생성 → 초기화·기동 → 원격 연결·등록 검사**다. Kafka의 실제 포트 바인딩은 설정을 읽고 프로세스가 시작할 때 일어난다.
 
-## 1. 서버 수와 역할
+## 1. WSL 이후 Java와 Kafka 설치
+
+이 절은 각 WSL 배포판에서 한 번씩 수행한다. `~`는 Windows의 `C:\Users\...`가 아니라 WSL Linux 사용자의 홈 디렉터리다. Kafka 4.3.1은 Java 17 이상이 필요하며, 이 계획은 Java 17을 기준으로 한다. [Kafka 4.3.1 Quickstart](https://kafka.apache.org/quickstart/)
+
+### Java 17 확인·설치와 경로 고정
+
+먼저 `java -version`을 확인한다. Java 17 이상이 설치되어 있으면 그 Java의 실제 경로를 사용하고, Java가 없거나 버전이 낮으면 JDK 17을 설치한다.
+
+```bash
+# 명령 실패 시 즉시 중단하고, 정의되지 않은 변수 사용을 막는다.
+set -euo pipefail
+
+# 현재 기본 Java의 실제 파일과 메이저 버전을 구한다.
+JAVA_BIN=""
+JAVA_MAJOR="0"
+if command -v java >/dev/null 2>&1; then
+  java -version
+  JAVA_BIN="$(readlink -f "$(which java)")"
+  JAVA_MAJOR="$($JAVA_BIN -version 2>&1 | awk -F '[\".]' '/version/ { print $2; exit }')"
+fi
+
+# Java가 없거나 17 미만이면 JDK 17을 설치하고 해당 실행 파일을 선택한다.
+if [ "$JAVA_MAJOR" -lt 17 ]; then
+  sudo apt update
+  sudo apt install -y openjdk-17-jdk
+  JAVA_BIN="$(update-alternatives --list java | grep -E '/java-17-[^/]*/bin/java$' | head -n 1 || true)"
+  if [ -z "$JAVA_BIN" ]; then
+    echo "JDK 17 실행 파일을 찾지 못했습니다." >&2
+    exit 1
+  fi
+  JAVA_BIN="$(readlink -f "$JAVA_BIN")"
+fi
+
+# 심볼릭 링크가 아닌 실제 java 경로에서 JAVA_HOME을 계산하고 최종 버전을 확인한다.
+JAVA_HOME="${JAVA_BIN%/bin/java}"
+JAVA_MAJOR="$($JAVA_HOME/bin/java -version 2>&1 | awk -F '[\".]' '/version/ { print $2; exit }')"
+if [ "$JAVA_MAJOR" -lt 17 ]; then
+  echo "Java 17 이상이 필요합니다. 현재 버전: $JAVA_MAJOR" >&2
+  exit 1
+fi
+"$JAVA_HOME/bin/java" -version
+```
+
+Kafka 실행 스크립트는 `JAVA_HOME`이 설정돼 있으면 `$JAVA_HOME/bin/java`를 사용한다. 이 값을 Kafka 실행 환경에 고정한다. [Kafka 실행 스크립트](https://github.com/apache/kafka/blob/trunk/bin/kafka-run-class.sh)
+
+```bash
+# Kafka 관리·기동 스크립트가 공통으로 읽을 환경 파일을 홈 디렉터리에 만든다.
+cat > "$HOME/.kafka-env" <<EOF
+export JAVA_HOME="$JAVA_HOME"
+export KAFKA_HOME="$HOME/kafka"
+export PATH="\$JAVA_HOME/bin:\$KAFKA_HOME/bin:\$PATH"
+EOF
+
+# bash 시작 시 환경 파일을 한 번만 읽도록 등록한다.
+touch "$HOME/.bashrc"
+if ! grep -qF 'source ~/.kafka-env' "$HOME/.bashrc"; then
+  printf '\nsource ~/.kafka-env\n' >> "$HOME/.bashrc"
+fi
+
+# 현재 터미널에도 즉시 적용하고 설정 값을 확인한다.
+source "$HOME/.kafka-env"
+"$JAVA_HOME/bin/java" -version
+echo "$KAFKA_HOME"
+```
+
+### Kafka 4.3.1 설치와 `~/kafka` 고정
+
+Kafka 바이너리는 WSL 홈 디렉터리에 버전별 경로로 풀고, `~/kafka` 심볼릭 링크만 이후 스크립트에서 사용한다. 모든 노드는 같은 4.3.1 바이너리를 사용한다.
+
+```bash
+set -euo pipefail
+
+KAFKA_VERSION="4.3.1"
+KAFKA_ARCHIVE="kafka_2.13-$KAFKA_VERSION.tgz"
+KAFKA_URL="https://downloads.apache.org/kafka/$KAFKA_VERSION/$KAFKA_ARCHIVE"
+
+mkdir -p "$HOME/packages"
+curl -fL "$KAFKA_URL" -o "$HOME/packages/$KAFKA_ARCHIVE"
+curl -fL "$KAFKA_URL.sha512" -o "$HOME/packages/$KAFKA_ARCHIVE.sha512"
+
+# Apache SHA-512 파일에서 체크섬을 읽어 다운로드한 바이너리와 비교한다.
+EXPECTED_SHA512="$(grep -Eo '[A-Fa-f0-9]{8}' "$HOME/packages/$KAFKA_ARCHIVE.sha512" | tr -d '\n')"
+ACTUAL_SHA512="$(sha512sum "$HOME/packages/$KAFKA_ARCHIVE" | awk '{ print toupper($1) }')"
+if [ "$ACTUAL_SHA512" != "$EXPECTED_SHA512" ]; then
+  echo "Kafka 4.3.1 SHA-512 검증에 실패했습니다." >&2
+  exit 1
+fi
+
+tar -xzf "$HOME/packages/$KAFKA_ARCHIVE" -C "$HOME"
+ln -sfn "$HOME/kafka_2.13-$KAFKA_VERSION" "$HOME/kafka"
+
+source "$HOME/.kafka-env"
+echo "$KAFKA_HOME"
+"$KAFKA_HOME/bin/kafka-storage.sh" random-uuid
+```
+
+이미 `~/kafka_2.13-4.3.1`에 데이터가 있다면 다시 압축을 풀지 않고 경로와 버전을 확인한다. `~/kafka` 링크는 배포판 경로를 고정할 뿐 Kafka 데이터 저장 경로는 아니다. controller와 broker의 데이터 경로는 이후 인벤토리와 설정에서 별도로 지정한다.
+
+이후 생성하는 모든 Kafka 관리·기동 스크립트는 첫 줄에 `source "$HOME/.kafka-env"`를 실행한다. systemd 같은 서비스로 전환할 경우에는 해당 unit의 `Environment=JAVA_HOME=...`와 `Environment=KAFKA_HOME=...`에도 같은 값을 지정한다.
+
+## 2. 서버 수와 역할
 
 서버 수는 3대 이상으로 가변이며 4대로 고정하지 않는다. 동일 스크립트가 공통 인벤토리를 읽어 현재 서버에 배정된 프로세스를 구성한다. controller leader는 Kafka가 선출하므로 특정 서버를 영구 leader로 지정하지 않는다.
 
@@ -25,7 +125,7 @@ controller 3개 또는 5개는 장애 허용을 위한 일반적인 선택이지
 
 각 역할의 로컬 포트와 외부 접속 포트를 먼저 계획한다. 기본 예시는 broker TCP 9092, controller TCP 9093이며, 이후 네트워크 준비 결과로 실제 주소를 확정한다.
 
-## 2. 네트워크 모드 적용과 포워딩·방화벽 준비
+## 3. 네트워크 모드 적용과 포워딩·방화벽 준비
 
 실행 환경을 `native-linux`, `wsl-nat`, `wsl-mirrored` 중 하나로 확인한다. native Linux는 WSL 절차를 건너뛰고 서버 주소·라우팅·방화벽을 준비한다. WSL에서는 NAT와 mirrored 중 적용할 방식을 정한 뒤 아래 절차를 진행한다.
 
@@ -84,7 +184,7 @@ New-NetFirewallHyperVRule -Name "Kafka-$publicPort" -DisplayName "Kafka-$publicP
 
 Windows 설정은 관리자 권한의 호스트 작업이다. Linux 셸 스크립트는 이 선행 조건을 점검하고 부족한 항목을 출력한다. 셸 실행만으로 Windows 방화벽까지 설정되었다고 처리하지 않는다.
 
-## 3. 주소·포트 사전 점검
+## 4. 주소·포트 사전 점검
 
 셸 스크립트는 실행 환경을 `native-linux`, `wsl-nat`, `wsl-mirrored` 중 하나로 입력받고 감지 결과와 대조한다. WSL이라는 사실만으로 mirrored 모드라고 추정하지 않는다.
 
@@ -103,9 +203,9 @@ getent ahostsv4 controller-1.example.internal
 
 방화벽은 해당 서버에서 실제로 사용하는 관리자(UFW, firewalld, nftables 등)로 점검한다. 클라우드라면 보안 그룹·네트워크 ACL도 포함한다. 예를 들어 UFW 사용 서버에서는 `sudo ufw status verbose`로 확인하고, 필요한 peer IP별로 해당 역할의 TCP 포트만 허용한다. 접속 실패를 방화벽 문제로 단정하지 않고 리스닝 여부 → 주소·DNS → 라우팅 → 방화벽 순서로 구분한다.
 
-이 단계에서는 로컬 주소 존재 여부, DNS, 라우팅, 포트 충돌, 포워딩 대상, 방화벽 규칙을 확인한다. 대상 Kafka가 아직 수신하지 않으므로 TCP 접속 성공을 통과 조건으로 요구하지 않는다. 사전 종단 간 검사가 필요한 경우에만 임시 TCP 수신 프로그램을 사용하며, 검사 후 종료하고 포트가 해제되었는지 확인한다. 일반 연결 검사는 7절에서 수행한다.
+이 단계에서는 로컬 주소 존재 여부, DNS, 라우팅, 포트 충돌, 포워딩 대상, 방화벽 규칙을 확인한다. 대상 Kafka가 아직 수신하지 않으므로 TCP 접속 성공을 통과 조건으로 요구하지 않는다. 사전 종단 간 검사가 필요한 경우에만 임시 TCP 수신 프로그램을 사용하며, 검사 후 종료하고 포트가 해제되었는지 확인한다. 일반 연결 검사는 8절에서 수행한다.
 
-## 4. 공통 인벤토리 확정과 자동 감지
+## 5. 공통 인벤토리 확정과 자동 감지
 
 스크립트 구현 시 Kafka의 정확한 버전, 해당 버전이 지원하는 Java 버전, 설치 경로를 고정한다. 아래는 **정적 quorum을 사용하는 기본 구성안**이다. 동적 quorum의 bootstrap·format 옵션을 혼합하지 않는다. 버전이 아직 선택되지 않았으므로 현재 문서를 즉시 실행 가능한 설치 스크립트로 취급하지 않는다.
 
@@ -124,9 +224,9 @@ hostname 우선으로 매칭하고, IP를 사용할 경우 지정 NIC/주소와 
 
 동일 서버의 controller와 broker도 서로 다른 node ID와 저장소를 사용한다. 전체 프로세스 ID 중복, 외부 endpoint 충돌, controller 또는 broker 목록이 비어 있는 입력은 거부한다.
 
-## 5. 확정한 인벤토리로 Kafka 설정 생성
+## 6. 확정한 인벤토리로 Kafka 설정 생성
 
-4절의 인벤토리를 입력으로 프로세스별 설정 파일을 생성한다. 이후 초기화와 기동은 이 파일을 사용한다. 네트워크 준비가 완료되지 않았으면 이 단계로 진행하지 않는다.
+5절의 인벤토리를 입력으로 프로세스별 설정 파일을 생성한다. 이후 초기화와 기동은 이 파일을 사용한다. 네트워크 준비가 완료되지 않았으면 이 단계로 진행하지 않는다.
 
 기본 예시 포트는 broker TCP 9092, controller TCP 9093이다. 실제 설정·방화벽·포워딩·검사는 모두 인벤토리 값을 사용한다.
 
@@ -175,9 +275,9 @@ log.dirs=<broker_data_dir>
 
 리스너 이름의 프로토콜 매핑을 명시한다. [Kafka listener 설정](https://kafka.apache.org/42/security/listener-configuration/)
 
-## 6. 초기화·기동·재실행
+## 7. 초기화·기동·재실행
 
-1. 2~3절의 네트워크 준비와 사전 점검, 4절의 인벤토리 확정, 5절의 설정 파일 생성을 완료했는지 확인한다. 모든 서버의 Kafka/Java 버전과 설정을 대조하고 저장 경로·권한을 검증한다.
+1. 1절의 Java·Kafka 설치, 3~4절의 네트워크 준비와 사전 점검, 5절의 인벤토리 확정, 6절의 설정 파일 생성을 완료했는지 확인한다. 모든 서버의 Kafka/Java 버전과 설정을 대조하고 저장 경로·권한을 검증한다.
 2. 공통 cluster ID는 `bin/kafka-storage.sh random-uuid`로 한 번 생성해 전 노드에 배포한다. 노드마다 새 ID를 만들지 않는다.
 3. 정적 quorum을 지원하는 선택 버전에서 신규 저장소만 `bin/kafka-storage.sh format -t <cluster_id> -c <설정파일>`로 포맷한다. 동적 quorum으로 전환하면 초기화 절차를 별도로 설계한다.
 4. 기존 저장소는 cluster ID·node ID와 경로를 검증하고 포맷하지 않는다. 비어 있지 않은데 metadata가 없거나 일부 디렉터리만 초기화된 상태는 자동 복구하지 않고 중단한다.
@@ -187,9 +287,9 @@ log.dirs=<broker_data_dir>
 
 서버 수가 가변이라는 것은 최초 인벤토리 크기가 가변이라는 뜻이다. 정적 quorum의 controller 수를 실행 중 자동으로 변경하는 기능까지 포함하지 않는다. 동적 quorum의 controller 추가 명령을 정적 quorum에 그대로 적용하지 않는다.
 
-## 7. 기동 후 원격 연결 검사와 완료 판정
+## 8. 기동 후 원격 연결 검사와 완료 판정
 
-각 대상 프로세스의 로컬 수신 상태를 `ss -lntp`로 확인한 뒤, 5절 연결 표의 각 출발 노드에서 다음 원격 검사를 수행한다. `nc`가 설치되어 있어야 한다.
+각 대상 프로세스의 로컬 수신 상태를 `ss -lntp`로 확인한 뒤, 6절 연결 표의 각 출발 노드에서 다음 원격 검사를 수행한다. `nc`가 설치되어 있어야 한다.
 
 ```bash
 # 실제 대상 주소·포트로 교체한다. 대상 Kafka 기동 후 실행한다.
@@ -225,7 +325,7 @@ bin/kafka-broker-api-versions.sh --bootstrap-server broker-1.example.internal:90
 
 토픽·내부 토픽의 복제 설정은 변경하지 않는다. broker 수가 적으면 이후 consumer group이나 transaction 기능의 기본 복제 조건을 만족하지 못할 수 있다. 이번 완료 판정은 클러스터 기동·등록에 한정한다.
 
-## 8. 실제 점검 결과 기록 양식
+## 9. 실제 점검 결과 기록 양식
 
 | 서버 | 역할/ID | 실행 환경/WSL 모드 | 로컬 리스닝 | 원격 peer TCP 검사 | Kafka 등록/quorum | 재실행 | 판정 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
