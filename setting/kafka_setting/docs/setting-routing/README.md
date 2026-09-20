@@ -222,7 +222,8 @@ Test-WslDistribution(Name) -> bool
   외부 호출: wsl.exe
 
 Assert-WslInstallSupportsNoLaunch()
-  wsl.exe --help에 --no-launch 옵션이 있는지 확인
+  wsl.exe --help 출력의 NUL 문자를 제거한 뒤 --no-launch 옵션이 있는지 확인
+  정상 도움말에도 -1을 반환할 수 있으므로 종료 코드 대신 도움말 내용만 판정
   없으면 대화형 최초 실행을 피할 수 없으므로 WSL 업데이트 안내와 함께 중단
   외부 호출: wsl.exe
 

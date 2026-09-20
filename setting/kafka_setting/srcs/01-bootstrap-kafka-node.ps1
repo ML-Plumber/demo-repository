@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
 빈 Windows에서 WSL Ubuntu와 Kafka 4.3.1 실행 환경을 준비합니다.
@@ -83,12 +83,11 @@ function Assert-WslInstallSupportsNoLaunch {
     $helpOutput = @(
         & wsl.exe --help 2>$null
     )
-    $exitCode = $LASTEXITCODE
+    # wsl.exe 도움말이 UTF-16으로 전달될 때 문자 사이에 들어오는 NUL 문자를 제거합니다.
+    $helpText = ($helpOutput -join "`n") -replace "`0", ""
 
-    if (
-        $exitCode -ne 0 -or
-        (($helpOutput -join "`n") -notmatch "--no-launch")
-    ) {
+    # 일부 WSL은 정상 도움말을 출력한 뒤에도 종료 코드 -1을 반환하므로 내용만 검사합니다.
+    if ($helpText -notmatch "--no-launch") {
         throw (
             "현재 WSL은 --no-launch 옵션을 지원하지 않습니다. " +
             "Ubuntu 최초 실행 셸이 PowerShell을 붙잡지 않도록 WSL을 업데이트한 뒤 다시 실행하세요."
