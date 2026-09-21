@@ -1,0 +1,71 @@
+
+개발 작업 규칙
+이 활동에서 개발 작업을 수행하고 아래로 함께 따라갑니다.
+
+1. 작업 시작 전 Git 변경 확인
+작업을 시작하기 전에 다음 항목을 확인합니다.
+
+git status --short로수정·추가·삭제된 파일과 untracked 파일을 확인합니다.
+추적된 파일은 git diff필요하면 git diff --cached로커밋( HEAD)과 비교합니다.
+untracked 파일은 이름만 확인하고 내부에 포함되지 않은 내용을 열어 현재 및 문서 관계를 확인합니다.
+커밋도 확인하여 현재 변경이 어떤 기준에서 시작되었는가 한 번 더 통일된다.
+기존 변경은 사용자가 변경한 것으로 간주됩니다. 표면적인 요청이 되돌리거나 쓰지 않는다는 점입니다.
+2. 사용자가 직접 수정한 코드의 문서 선반영
+작업 시작 시 이미 코드가 변경되면 먼저 Git diff를 기준으로 사용자가 수정한 범위와 작업하는 문서를 일치시키게 됩니다. 현재의 행위, 권한, 관련 관계와 관련하여 해당 코드는 다음 개발 작업을 수행합니다.
+
+통합 README.md:./README.md
+
+wsl README.md:./setting/docs/wsl/README.md
+window README.md:./setting/docs/window/README.md
+spark README.md:./setting/docs/spark/README.MD
+kafka README.md:./setting/docs/kafka/README.md
+
+통합 ROUTING-README.md:./ROUTING-README.md
+
+wsl 관리 문서:./setting/docs/wsl/setting-routing/ROUTING-README.md
+wsl 파일별 문서:./setting/docs/wsl/setting-routing/files/<client 상대경로>.md
+
+window 관리 문서:./setting/docs/window/setting-routing/ROUTING-README.md
+window 파일별 문서:./setting/docs/window/setting-routing/files/<client 상대경로>.md
+
+spark 관리 문서:./setting/docs/spark/setting-routing/ROUTING-README.md
+spark 파일별 문서:./setting/docs/spark/setting-routing/files/<client 상대경로>.md
+
+kafka 관리 문서:./setting/docs/kafka/setting-routing/ROUTING-README.md
+kafka 파일별 문서:./setting/docs/kafka/setting-routing/files/<client 상대경로>.md
+
+소스나 설정 파일을 추가·이동·삭제하는 경우 파일별 문서도 함께 추가·이동·삭제합니다.
+현재 코드 변경과 관계 없는 문서 내용은 수정되지 않습니다.
+3. 개발 중 문서 범위 유지
+사용자는 실제 코드만을 기준으로 작성합니다. 계획을 세우지 않고 변경하지 않으려고 변경하지 않는 것입니다. 파일별 문서에는 해당 파일의 소유권과 직접 전송된 관계를 기록하고, 다른 파일의 내부 내용은 설명하지 않는다는 것입니다.
+
+4. 개발을 완료해야 합니다.
+모든 코드 수정과 참여가 뒤에는 작업을 종료하기 전에 다음 절차를 추가로 수행합니다.
+
+git diff이번 작업 을 git status --short다시 변경하여 실제로 파일과 내용을 변경합니다.
+실제로 변경된 내용과 협력하는 문서에 대해 이야기합니다.
+절단 문서의 파일 목록·책임·호출 구조와 각 파일 문서별로 코드를 최종적으로 일치하는지 대조합니다.
+추적되지 않은 파일이 다시 연결되었는지 확인합니다.
+코드와 문서가 일치하는 상태에서 필요한 증거를 수집합니다.
+개조 작업은 선택 사항이 아니라 모든 개발 작업의 제약이 필요합니다.
+
+5. 유효성을 강조하고 자동으로 준비 및 잘라내기 커밋
+코드 크기, 규모의 논쟁, 필요한 검증이 모두 끝났고 문제가 다음 프로세스를 수행하기 위한 것입니다.
+
+이번 작업에 최종 파일 변경을 자동으로 포함 git add합니다. 작업과 관계 없는 기존 변경은 스테이징되지 않습니다.
+git status --short와로 git diff --cached준비 파일과 내용을 다시 확인합니다.
+Staged를 변경한 커밋과 제안하는 커밋을 사용자에게 보여줍니다.
+사용자의 권위를 인정받아 git commit실행합니다. 앞으로는 커밋하지 않을 것입니다.
+커미트 결과와 커밋을 사용자에게 알린다.
+검증 실패나 문서 작업 을 계속해 주시기 git add바랍니다 git commit.
+
+6. 라우팅 문서 기반 파일 확인
+
+작업을 시작할 때 저장소 전체 파일의 내용을 먼저 풀 스캔하지 않습니다.
+먼저 통합 라우팅 README.md를 읽고, 현재 작업에 필요한 영역의 라우팅 README.md 파일을 판단합니다.
+해당 작업 영역의 라우팅 README.md를 읽고, 현재 작업에 필요한 문서와 파일을 판단합니다.
+라우팅 README.md를 기준으로 필요한 파일만 확인합니다.
+필요한 파일을 일부러 읽지 않거나 확인 범위를 무조건 줄이는 규칙은 아닙니다.
+라우팅 정보가 부족하거나 검증에 필요하면 관련 문서와 파일을 추가로 확인합니다.
+이 규칙은 기존의 Git 변경 확인과 작업 결과 검증 절차를 제한하지 않습니다.
+작업이 끝나면 실제로 확인한 파일들 전부를 간단하게 명시한다.
