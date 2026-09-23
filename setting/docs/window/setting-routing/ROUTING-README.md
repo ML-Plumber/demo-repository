@@ -8,14 +8,14 @@ Windows 11에서 WSL 미러링 네트워크와 방화벽을 설정하는 파일�
 
 ```text
 Windows 설정
-└─ setup-wsl-network.ps1
+└─ setup-window-network.ps1
    ├─ WSL 미러링 모드 설정
    ├─ Windows Firewall 규칙 설정
    ├─ Hyper-V Firewall 규칙 설정
    └─ WSL 종료를 통한 설정 반영 준비
 ```
 
-- [setup-wsl-network.ps1 파일 문서](files/setup-wsl-network.ps1.md)
+- [setup-window-network.ps1 파일 문서](files/setup-window-network.ps1.md)
 
 ## 함수와 메서드
 

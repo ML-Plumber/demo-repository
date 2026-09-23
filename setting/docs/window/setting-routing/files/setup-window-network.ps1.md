@@ -1,4 +1,4 @@
-# `setting/window/setup-wsl-network.ps1`
+# `setting/window/setup-window-network.ps1`
 
 ## 책임
 
@@ -7,7 +7,7 @@ Windows 11에서 WSL2 미러링 네트워크와 Windows Firewall 및 Hyper-V Fir
 ## 호출 구조
 
 ```text
-setup-wsl-network.ps1
+setup-window-network.ps1
 ├─ 관리자 권한 확인
 ├─ ClusterIPs 유효성 검사
 ├─ Set-WslMirroredMode
